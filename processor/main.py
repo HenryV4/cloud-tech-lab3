@@ -18,6 +18,8 @@ def process_iot_message(event, context):
         context (google.cloud.functions.Context): Метадані.
     """
     
+    print("!!! FUNCTION STARTED SUCCESSFULLY !!!") # <<< ДОДАТИ ЦЕЙ ЛОГ!
+
     # 1. Декодування вхідних даних (обов'язково для Pub/Sub тригера)
     if 'data' not in event:
         print("Помилка: Повідомлення не містить даних.")
@@ -28,6 +30,7 @@ def process_iot_message(event, context):
         data_bytes = base64.b64decode(event['data'])
         payload = json.loads(data_bytes.decode('utf-8'))
     except Exception as e:
+        # Додати логування помилки декодування
         print(f"Помилка декодування або парсингу JSON: {e}")
         return
         
@@ -62,14 +65,11 @@ def process_iot_message(event, context):
         
     # 4. Збереження в Базі Даних (Завдання 4)
     try:
-        # Назва колекції (по суті, таблиці) в Firestore.
-        # Кожен тип датчика матиме окрему колекцію для чистоти даних.
-        collection_name = f'iot_readings_{device_type}'
-        
-        # Записуємо дані у відповідну колекцію
+        # ... (Зберігання)
         db.collection(collection_name).add(data_to_save)
-        
-        print(f"Дані успішно збережено у колекції: {collection_name}")
+        # ...
     except Exception as e:
-        print(f"Помилка при збереженні у Firestore: {e}")
+        # Додати логування помилки збереження
+        print(f"!!! CRITICAL: Помилка при збереженні у Firestore: {e}")
+
 
