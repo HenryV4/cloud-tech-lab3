@@ -1,9 +1,12 @@
 import base64
 import json
 from google.cloud import firestore
+import os # ДОДАТИ: Імпорт модуля os
 
 # Ініціалізація клієнта Firestore
-db = firestore.Client()
+# Читаємо DB_ID зі змінної середовища. Якщо не знайдено, використовуємо "(default)".
+DB_ID = os.environ.get("DB_ID", "(default)") 
+db = firestore.Client(database=DB_ID) # ВИКОРИСТОВУЄМО ЯВНИЙ ID
 
 def process_iot_message(event, context):
     """
@@ -69,3 +72,4 @@ def process_iot_message(event, context):
         print(f"Дані успішно збережено у колекції: {collection_name}")
     except Exception as e:
         print(f"Помилка при збереженні у Firestore: {e}")
+
