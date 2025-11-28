@@ -1,0 +1,24 @@
+{
+    "pubsub_project_id": "lab3-479612", 
+    "pubsub_topic_id": "iot-sensor-data",
+    "devices": [
+        {
+            "id": "temp-sensor-001",
+            "type": "temperature",
+            "frequency_ms": 50,
+            "location": {"lat": 49.8397, "lon": 24.0297}
+        },
+        {
+            "id": "humidity-sensor-002",
+            "type": "humidity",
+            "frequency_ms": 100,
+            "location": {"lat": 49.8397, "lon": 24.0297}
+        },
+        {
+            "id": "light-sensor-003",
+            "type": "light",
+            "frequency_ms": 75,
+            "location": {"lat": 49.8397, "lon": 24.0297}
+        }
+    ]
+}
