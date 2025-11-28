@@ -1,117 +1,61 @@
-import asyncio
+import time
 import json
 import random
-import threading
-import time
 import os
 from datetime import datetime
 from google.cloud import pubsub_v1
-from flask import Flask, jsonify, request
 
-# --- Конфігурація та Ініціалізація ---
-
-try:
-    with open('config.json', 'r') as f:
-        config = json.load(f)
-except FileNotFoundError:
-    print("Помилка: Файл config.json не знайдено.")
-    exit()
-
-PUBSUB_PROJECT_ID = config['pubsub_project_id']
-PUBSUB_TOPIC_ID = config['pubsub_topic_id']
+# Налаштування
+PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT')
+TOPIC_ID = "iot-topic"
 
 publisher = pubsub_v1.PublisherClient()
-topic_path = publisher.topic_path(PUBSUB_PROJECT_ID, PUBSUB_TOPIC_ID)
+topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
 
-# --- Глобальні змінні для керування ---
-IS_RUNNING = True
-emulators_thread = None
+class Sensor:
+    def __init__(self, sensor_type, location, min_val, max_val):
+        self.sensor_type = sensor_type
+        self.location = location
+        self.min_val = min_val
+        self.max_val = max_val
 
-# --- Логіка емуляції (без змін, крім виходу) ---
+    def generate_data(self):
+        data = {
+            "sensor_type": self.sensor_type,
+            "location": self.location,
+            "timestamp": datetime.now().isoformat(),
+            "value": round(random.uniform(self.min_val, self.max_val), 2)
+        }
+        if self.sensor_type == "Temperature":
+            data["unit"] = "C"
+        elif self.sensor_type == "Humidity":
+            data["unit"] = "%"
+        elif self.sensor_type == "Light":
+            data["unit"] = "Lux"
+        return data
 
-def generate_value(device_type):
-    if device_type == "temperature":
-        return round(random.uniform(15.0, 30.0), 2)
-    elif device_type == "humidity":
-        return random.randint(30, 80)
-    elif device_type == "light":
-        return random.randint(100, 1000)
-    return None
+sensors = [
+    Sensor("Temperature", "Room-101", 18.0, 28.0),
+    Sensor("Humidity", "Room-101", 30.0, 60.0),
+    Sensor("Light", "Garden-A", 100.0, 1000.0)
+]
 
-async def device_emulator(device_config):
-    device_id = device_config['id']
-    device_type = device_config['type']
-    frequency_ms = device_config['frequency_ms']
-    location = device_config['location']
-    
-    interval_sec = frequency_ms / 1000.0
-    print(f"[{device_id}] Емулятор запущено. Частота: {frequency_ms} ms")
-    
-    while IS_RUNNING: # Перевірка глобального прапорця
-        start_time = time.monotonic()
-        try:
-            payload = {
-                "device_id": device_id,
-                "device_type": device_type,
-                "timestamp": datetime.utcnow().isoformat() + 'Z',
-                "location": location,
-                "value": generate_value(device_type)
-            }
-            
-            data = json.dumps(payload).encode("utf-8")
-            future = publisher.publish(topic_path, data, device_type=device_type)
-            print(f"[{device_id}] Надсилання: {payload['value']} {device_type}. Future ID: {future.result()}")
-            
-        except Exception as e:
-            print(f"[{device_id}] Помилка надсилання: {e}")
-            
-        elapsed_time = time.monotonic() - start_time
-        sleep_time = max(0, interval_sec - elapsed_time)
+print(f"Start emulation... Project: {PROJECT_ID}")
+
+try:
+    while True:
+        sensor = random.choice(sensors)
+        payload = sensor.generate_data()
+        message_bytes = json.dumps(payload).encode("utf-8")
         
-        await asyncio.sleep(sleep_time)
+        try:
+            publisher.publish(topic_path, data=message_bytes)
+            print(f"Sent: {payload}")
+        except Exception as e:
+            print(f"Error: {e}")
 
-def run_emulators_in_loop():
-    """Запускає асинхронний цикл для всіх емуляторів."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    tasks = [asyncio.create_task(device_emulator(cfg)) for cfg in config['devices']]
-    
-    print("Усі асинхронні завдання емуляторів запущені.")
-    loop.run_until_complete(asyncio.gather(*tasks))
+        # Емуляція затримки 20-100 мс
+        time.sleep(random.uniform(0.02, 0.1))
 
-
-# --- Веб-сервер Flask для Cloud Run ---
-
-app = Flask(__name__)
-
-@app.route('/', methods=['GET'])
-def home():
-    """Перевірка стану та головна сторінка."""
-    status = "працює" if IS_RUNNING else "зупинено"
-    return jsonify({
-        "status": f"IoT Емулятор {status}",
-        "message": "Перейдіть до /stop, щоб зупинити емуляцію і заощадити кошти."
-    }), 200
-
-@app.route('/stop', methods=['POST', 'GET'])
-def stop_emulator():
-    """Керування: зупиняє цикл емуляції."""
-    global IS_RUNNING
-    if IS_RUNNING:
-        IS_RUNNING = False
-        print("!!! ОТРИМАНО КОМАНДУ /stop. ЕМУЛЯТОРИ ЗУПИНЯЮТЬСЯ !!!")
-        return jsonify({"status": "Success", "message": "Емуляцію зупинено. Cloud Run буде чекати тарифікованих запитів, але фоновий worker вимкнено."}), 200
-    else:
-        return jsonify({"status": "Already Stopped", "message": "Емулятори вже не працюють."}), 200
-
-
-# Запуск фонового потоку при старті
-if __name__ == '__main__':
-    emulators_thread = threading.Thread(target=run_emulators_in_loop)
-    emulators_thread.start()
-    
-    # Визначення порту, який надає Cloud Run
-    port = int(os.environ.get("PORT", 8080))
-    print(f"Flask запущено на порту {port}")
-    app.run(host="0.0.0.0", port=port)
+except KeyboardInterrupt:
+    print("Stopped.")
