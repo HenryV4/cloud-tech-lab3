@@ -24,7 +24,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
     <div class="container">
-        <h1 class="mb-4 text-center">🎛️ IoT Control Center</h1>
+        <h1 class="mb-4 text-center">IoT Control Center</h1>
         <div class="card">
             <div class="card-body">
                 <h5 class="card-title">Live Sensor Data</h5>
@@ -53,9 +53,6 @@ HTML_TEMPLATE = """
                     </tbody>
                 </table>
             </div>
-        </div>
-        <div class="text-center mt-3 text-muted">
-            Auto-refreshing every 5 seconds...
         </div>
     </div>
 </body>
@@ -95,3 +92,4 @@ def dashboard():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
+
