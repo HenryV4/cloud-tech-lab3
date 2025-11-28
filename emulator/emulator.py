@@ -5,24 +5,77 @@ import os
 import threading
 from datetime import datetime
 from google.cloud import pubsub_v1
-from flask import Flask
+from flask import Flask, render_template_string, redirect, url_for
 
 app = Flask(__name__)
 
-# --- CONTROL FLAGS ---
-# Прапорець: чи слати дані? (За замовчуванням - True)
+# --- GLOBAL STATE ---
 IS_RUNNING = True 
-
 PROJECT_ID = os.environ.get('GOOGLE_CLOUD_PROJECT')
 TOPIC_ID = "iot-topic"
+LAST_LOG = "Waiting for data..."
 
+# --- PUBSUB INIT ---
 try:
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
 except:
     publisher = None
 
-# --- SENSORS CONFIG ---
+# --- HTML TEMPLATE (UI) ---
+HTML_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IoT Emulator Control</title>
+    <meta http-equiv="refresh" content="3">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #e9ecef; padding-top: 50px; }
+        .container { max-width: 600px; }
+        .card { border-radius: 15px; box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+        .status-indicator { font-size: 1.2rem; font-weight: bold; }
+        .log-box { background: #000; color: #0f0; padding: 10px; border-radius: 5px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card text-center p-4">
+            <h2 class="mb-3">📡 IoT Device Emulator</h2>
+            
+            <div class="mb-4">
+                Status: 
+                {% if is_running %}
+                    <span class="badge bg-success status-indicator">ONLINE (SENDING)</span>
+                {% else %}
+                    <span class="badge bg-danger status-indicator">OFFLINE (PAUSED)</span>
+                {% endif %}
+            </div>
+
+            <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mb-4">
+                {% if is_running %}
+                    <a href="/stop" class="btn btn-danger btn-lg px-5">STOP Simulation</a>
+                {% else %}
+                    <a href="/start" class="btn btn-success btn-lg px-5">START Simulation</a>
+                {% endif %}
+            </div>
+
+            <div class="text-start">
+                <label class="text-muted">Last Action:</label>
+                <div class="log-box">{{ last_log }}</div>
+            </div>
+            
+            <div class="mt-3 text-muted small">
+                Project ID: {{ project_id }} <br>
+                Target Topic: {{ topic_id }}
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+# --- SENSORS ---
 class Sensor:
     def __init__(self, sensor_type, location, min_val, max_val):
         self.sensor_type = sensor_type
@@ -50,7 +103,8 @@ sensors = [
 
 # --- BACKGROUND THREAD ---
 def run_emulator():
-    print(f"Emulator started. Sending data: {IS_RUNNING}")
+    global LAST_LOG
+    print("Emulator thread started.")
     while True:
         if IS_RUNNING and publisher and PROJECT_ID:
             try:
@@ -58,35 +112,40 @@ def run_emulator():
                 payload = sensor.generate_data()
                 msg = json.dumps(payload).encode("utf-8")
                 publisher.publish(topic_path, data=msg)
-                print(f"Sent: {payload['sensor_type']}")
+                
+                log_msg = f"Sent {payload['sensor_type']} value={payload['value']} to Pub/Sub"
+                print(log_msg)
+                LAST_LOG = log_msg
             except Exception as e:
                 print(f"Error: {e}")
-        elif not IS_RUNNING:
-            print("Emulator PAUSED...")
+                LAST_LOG = f"Error: {e}"
         
-        # Затримка
-        time.sleep(random.uniform(0.1, 0.5))
+        time.sleep(random.uniform(0.2, 0.8))
 
-# --- WEB CONTROLS ---
+# --- ROUTES ---
 @app.route("/")
-def status():
-    state = "RUNNING" if IS_RUNNING else "PAUSED"
-    return f"<h1>Status: {state}</h1><p>Use /stop to pause and /start to resume.</p>"
+def index():
+    return render_template_string(HTML_TEMPLATE, 
+                                is_running=IS_RUNNING, 
+                                last_log=LAST_LOG,
+                                project_id=PROJECT_ID,
+                                topic_id=TOPIC_ID)
 
 @app.route("/stop")
-def stop_emu():
-    global IS_RUNNING
+def stop():
+    global IS_RUNNING, LAST_LOG
     IS_RUNNING = False
-    return "<h1>Emulator Stopped (Paused)</h1><a href='/'>Back</a>"
+    LAST_LOG = "Simulation Paused by User"
+    return redirect(url_for('index'))
 
 @app.route("/start")
-def start_emu():
-    global IS_RUNNING
+def start():
+    global IS_RUNNING, LAST_LOG
     IS_RUNNING = True
-    return "<h1>Emulator Started</h1><a href='/'>Back</a>"
+    LAST_LOG = "Simulation Resumed"
+    return redirect(url_for('index'))
 
 if __name__ == "__main__":
-    # Запускаємо емулятор у фоні
     t = threading.Thread(target=run_emulator)
     t.daemon = True
     t.start()
