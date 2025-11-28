@@ -1,112 +1,66 @@
-# import base64
-# import json
-# from google.cloud import firestore
-# import os 
+import base64
+import json
+import os
+from flask import Flask, request, jsonify
+from google.cloud import firestore
 
-# # --- КЕШУВАННЯ КЛІЄНТА FIRESTORE ---
-# # Це вирішує проблему падіння при холодному старті
-# cached_db_client = None
+app = Flask(__name__)
 
-# def get_db_client():
-#     """Повертає кешований клієнт Firestore, ініціалізуючи його при першому виклику."""
-#     global cached_db_client
-    
-#     if cached_db_client is None:
-#         # Читаємо DB_ID зі змінної середовища. Вона має бути встановлена на "lab3-db"
-#         DB_ID = os.environ.get("DB_ID", "(default)")
-#         try:
-#             # Ініціалізуємо лише один раз
-#             cached_db_client = firestore.Client(database=DB_ID)
-#             print(f"Firestore Client initialized successfully for DB: {DB_ID}")
-#         except Exception as e:
-#             # Якщо ініціалізація падає, ми це залогіруємо
-#             print(f"!!! CRITICAL GLOBAL INIT ERROR: Failed to initialize Firestore Client: {e}")
-#             raise # Примусове падіння, якщо ініціалізація неможлива
-#     return cached_db_client
+# Підключаємось до бази даних
+db = firestore.Client()
+COLLECTION_NAME = 'iot_data'
 
-# # --- ОСНОВНА ФУНКЦІЯ ОБРОБКИ ---
+@app.route('/', methods=['POST'])
+def receive_pubsub_message():
+    """Ця функція приймає повідомлення від Pub/Sub (Push subscription)"""
+    envelope = request.get_json()
+    if not envelope:
+        return 'No Pub/Sub message received', 400
 
-# def generate_value(device_type):
-#     """(Просто заглушка для коректності)"""
-#     # Ми не використовуємо цей метод в обробнику, але залишаємо його для чистоти, якщо він потрібен в іншому місці
-#     return None 
+    if not isinstance(envelope, dict) or 'message' not in envelope:
+        return 'Invalid Pub/Sub message format', 400
 
+    # Pub/Sub надсилає дані у полі message -> data (закодовані в base64)
+    pubsub_message = envelope['message']
 
-# def process_iot_message(event, context):
-#     """
-#     Обробляє повідомлення, опубліковане в Pub/Sub, і зберігає його у Firestore.
-#     """
-    
-#     print("!!! FUNCTION STARTED SUCCESSFULLY !!!") # Це має з'явитися в логах
+    if isinstance(pubsub_message, dict) and 'data' in pubsub_message:
+        try:
+            # Розкодовуємо дані
+            data_str = base64.b64decode(pubsub_message['data']).decode('utf-8')
+            sensor_data = json.loads(data_str)
+            
+            # Додаємо час отримання сервером (server_time)
+            sensor_data['server_processed_at'] = firestore.SERVER_TIMESTAMP
 
-#     # 1. Отримати клієнта (створюється при першому виклику)
-#     try:
-#         db = get_db_client()
-#     except Exception as e:
-#         print(f"FATAL: Cannot get Firestore client. Skipping message. Error: {e}")
-#         return # Зупиняємо обробку, якщо немає підключення до БД
+            # ЗАПИС У БАЗУ ДАНИХ (Firestore)
+            db.collection(COLLECTION_NAME).add(sensor_data)
+            
+            print(f"Saved to DB: {sensor_data}")
+            return 'OK', 200
+        except Exception as e:
+            print(f"Error processing message: {e}")
+            return f'Error: {e}', 500
 
-#     # 2. Декодування вхідних даних 
-#     if 'data' not in event:
-#         print("Error: Pub/Sub message contains no data.")
-#         return
-        
-#     try:
-#         # Дані закодовані в Base64
-#         data_bytes = base64.b64decode(event['data'])
-#         payload = json.loads(data_bytes.decode('utf-8'))
-#     except Exception as e:
-#         print(f"Error decoding or parsing JSON from Pub/Sub: {e}")
-#         return
-        
-#     # 3. Валідація та Обробка
-#     device_id = payload.get('device_id', 'unknown')
-#     device_type = payload.get('device_type', 'unknown')
-#     timestamp = payload.get('timestamp')
-#     value = payload.get('value')
-#     location = payload.get('location')
-    
-#     if not all([device_id, device_type, timestamp, value]):
-#         print(f"Error: Incomplete data. Payload: {payload}")
-#         return
+    return 'No data found in message', 400
 
-#     print(f"Received data from {device_id} ({device_type}): Value {value}")
+@app.route('/history', methods=['GET'])
+def get_history():
+    """Бонус: REST API для отримання історії"""
+    try:
+        # Беремо останні 20 записів, відсортовані за часом
+        docs = db.collection(COLLECTION_NAME)\
+                 .order_by('timestamp', direction=firestore.Query.DESCENDING)\
+                 .limit(20)\
+                 .stream()
 
-#     # 4. Підготовка даних для зберігання
-#     data_to_save = {
-#         'device_id': device_id,
-#         'type': device_type,
-#         'value': value,
-#         'timestamp': firestore.SERVER_TIMESTAMP, # Використовуємо серверний час
-#         'sensor_time': timestamp, # Час, коли дані були згенеровані емулятором
-#         'location': location
-#     }
-    
-#     # 5. Збереження в Базі Даних 
-#     try:
-#         # Колекція залежить від типу датчика
-#         collection_name = f'iot_readings_{device_type}'
-        
-#         # Записуємо дані у відповідну колекцію
-#         db.collection(collection_name).add(data_to_save)
-        
-#         print(f"Data successfully saved to collection: {collection_name}")
-#     except Exception as e:
-#         print(f"!!! CRITICAL: Error saving to Firestore. Check IAM permissions. Error: {e}")
-#         # Тут не використовуємо return, якщо ви налаштували Pub/Sub на повтор (хоча ми вимкнули його)
+        history = []
+        for doc in docs:
+            history.append(doc.to_dict())
 
+        return jsonify(history), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
-
-def process_iot_message(event, context):
-    import json
-    import base64
-    
-    print("!!! TEST LOGGER STARTED !!!") # ЦЕ МАЄ З'ЯВИТИСЯ
-    
-    if 'data' in event:
-        data_bytes = base64.b64decode(event['data'])
-        payload = json.loads(data_bytes.decode('utf-8'))
-        
-        print(f"TEST SUCCESS: RECEIVED DATA for device {payload.get('device_id')}")
-    else:
-        print("TEST SUCCESS: RECEIVED EMPTY MESSAGE")
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
