@@ -2,15 +2,16 @@
 FROM python:3.11-slim
 
 # Встановлюємо робочу директорію в контейнері
-WORKDIR /app
+WORKDIR /app/emulator
 
-# Копіюємо requirements.txt та встановлюємо залежності
-COPY requirements.txt .
+# Копіюємо файли емулятора
+COPY emulator/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копіюємо решту файлів проекту (скрипт і конфігурацію)
-COPY . .
+# Копіюємо решту файлів проекту 
+COPY emulator/config.json .
+COPY emulator/emulator.py .
 
 # Визначаємо команду для запуску скрипта
-# Ми припускаємо, що наш скрипт називається emulator.py
+# Вважаємо, що наш скрипт називається emulator.py
 CMD ["python", "emulator.py"]
