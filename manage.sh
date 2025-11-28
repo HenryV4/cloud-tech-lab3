@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 echo -e "${YELLOW}--- IoT Lab Manager ($PROJECT_ID) ---${NC}"
 
 PS3='Вибери дію: '
-options=("Оновити/Запустити ВСЕ" "Оновити тільки Емулятор" "Оновити тільки Процесор" "⏸ПАУЗА (Зупинити списання грошей)" "ВИДАЛИТИ ВСЕ (Кінець роботи)" "Вихід")
+options=("Оновити/Запустити ВСЕ" "Оновити тільки Емулятор" "Оновити тільки Процесор" "ПАУЗА" "ВИДАЛИТИ ВСЕ" "Вихід")
 select opt in "${options[@]}"
 do
     case $opt in
@@ -66,7 +66,7 @@ do
             break
             ;;
 
-        "ПАУЗА (Зупинити списання грошей)")
+        "ПАУЗА")
             echo -e "${YELLOW}Зменшуємо кількість інстансів до 0 (гроші не списуються)...${NC}"
             # Емулятор перестане працювати, бо ми прибираємо min-instances=1
             gcloud run services update iot-emulator-service --region $REGION --min-instances=0
@@ -76,7 +76,7 @@ do
             break
             ;;
 
-        "ВИДАЛИТИ ВСЕ (Кінець роботи)")
+        "ВИДАЛИТИ ВСЕ")
             echo -e "${RED}УВАГА! Видаляємо сервіси...${NC}"
             gcloud run services delete iot-emulator-service --region $REGION --quiet
             gcloud run services delete iot-processor-service --region $REGION --quiet
